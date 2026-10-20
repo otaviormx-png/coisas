@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Revisão PEC para BPA-I</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Revisão PEC → BPA-I</h1>
+      <p id="summary">Carregando…</p>
+    </div>
+    <div class="actions">
+      <button id="save" class="secondary">Salvar rascunho</button>
+      <button id="retryPending" class="secondary">Tentar cadastros pendentes</button>
+      <button id="duplicateSelected" class="secondary">Duplicar atendimento</button>
+      <button id="excludeSelected" class="secondary">Excluir selecionados</button>
+      <button id="includeSelected" class="secondary">Reincluir selecionados</button>
+      <button id="removeSelected" class="danger">Remover da lista</button>
+      <button id="openPreview" class="secondary">Prévia das folhas BPA</button>
+      <button id="exportJson" class="primary">Exportar fila para o BPA</button>
+      <button id="exportCsv" class="secondary">Exportar planilha CSV</button>
+    </div>
+  </header>
+
+  <section class="notice">
+    <strong>Etapa segura de conferência.</strong>
+    <span id="syncNotice">A coleta feita pela Agenda abre os cadastros completos e traz CPF, CNS e residência. Esta versão ainda não grava no BPA.</span>
+  </section>
+
+  <details class="unit-address">
+    <summary>Endereço de contingência da unidade</summary>
+    <p>Usado somente quando faltarem dados de residência no PEC. Os demais dados do paciente continuam obrigatórios.</p>
+    <div class="unit-address-grid">
+      <label>CEP <input id="unitPostalCode" inputmode="numeric" maxlength="8" placeholder="Somente números"></label>
+      <label>Município (IBGE) <input id="unitMunicipalityCode" inputmode="numeric" maxlength="6" placeholder="Ex.: 330330"></label>
+      <label>Cód. logradouro <input id="unitStreetType" inputmode="numeric" maxlength="3" placeholder="Ex.: 081"></label>
+      <label>Logradouro <input id="unitStreet" maxlength="60"></label>
+      <label>Número <input id="unitNumber" maxlength="10"></label>
+      <label>Complemento <input id="unitComplement" maxlength="30"></label>
+      <label>Bairro <input id="unitNeighborhood" maxlength="60"></label>
+      <button id="saveUnitAddress" class="secondary">Salvar endereço da unidade</button>
+      <span id="unitAddressStatus"></span>
+    </div>
+  </details>
+
+  <details class="professional-settings">
+    <summary>Adicionar/configurar profissional novo</summary>
+    <p>O nome é puxado automaticamente da Agenda ou da Lista de atendimentos. Configure aqui apenas o procedimento padrão e se o CID será obrigatório; CNS, CBO, serviço e classificação ficam no importador do BPA.</p>
+    <div class="professional-settings-grid">
+      <label>Profissional encontrado no PEC <select id="profileProfessional"></select></label>
+      <label>Procedimento padrão <input id="profileProcedure" inputmode="numeric" maxlength="10" placeholder="Ex.: 0302050027"></label>
+      <label class="checkbox-label"><input id="profileCidRequired" type="checkbox"> CID obrigatório</label>
+      <button id="saveProfessionalProfile" class="secondary">Salvar regra</button>
+      <span id="professionalProfileStatus"></span>
+    </div>
+  </details>
+
+  <section class="toolbar">
+    <label>Lote coletado <select id="batchSelect"></select></label>
+    <label>Mostrar profissional <select id="professionalFilter"><option value="">Todos os profissionais</option></select></label>
+    <label>Mostrar situação
+      <select id="statusFilter">
+        <option value="">Todas as situações</option>
+        <option value="pending">Pendentes</option>
+        <option value="reviewed">Revisados</option>
+        <option value="duplicate">Duplicados</option>
+        <option value="no-show">Não compareceu</option>
+        <option value="not-performed">Atendimento não realizado</option>
+        <option value="excluded">Excluídos</option>
+      </select>
+    </label>
+    <button id="selectFiltered" class="secondary">Selecionar filtrados</button>
+    <label>Origem do cadastro
+      <select id="originFilter">
+        <option value="">Todas as origens</option>
+        <option value="agenda">Agenda</option>
+        <option value="cadastro">Cadastro individual</option>
+        <option value="pendente">Ainda não localizado</option>
+      </select>
+    </label>
+    <label>Preencher procedimento selecionados
+      <input id="bulkProcedure" inputmode="numeric" maxlength="10" placeholder="Ex.: 0302050027">
+    </label>
+    <label>Preencher CID selecionados
+      <input id="bulkCid" maxlength="10" placeholder="Ex.: M545">
+    </label>
+    <button id="applyBulk" class="secondary">Aplicar</button>
+    <button id="collapseDays" class="secondary">Recolher dias</button>
+    <button id="expandDays" class="secondary">Abrir dias</button>
+  </section>
+
+  <section class="breakdown">
+    <strong>Resumo por profissional e dia</strong>
+    <div id="breakdown"></div>
+  </section>
+
+  <section class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th><input id="selectAll" type="checkbox" aria-label="Selecionar todos"></th>
+          <th>Data</th><th>Paciente</th><th>Profissional</th>
+          <th>Procedimento</th><th>CID</th><th>Regra</th><th>Situação</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </section>
+
+  <footer>
+    <span id="counts"></span>
+    <span id="saveState">Salvamento automático ativado.</span>
+    <span>Os profissionais são separados automaticamente. Na Bruna, a mesma pessoa nunca fica duas vezes na mesma folha.</span>
+  </footer>
+
+  <section id="sheetPreviewModal" class="modal-backdrop" hidden aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="previewTitle">
+      <div class="modal-header">
+        <div>
+          <h2 id="previewTitle">Prévia das folhas BPA-I</h2>
+          <p id="previewSummary">Confira como os atendimentos serão separados.</p>
+        </div>
+        <div class="modal-actions">
+          <button id="refreshPreview" class="secondary">Atualizar prévia</button>
+          <button id="closePreview" class="secondary">Fechar</button>
+        </div>
+      </div>
+      <div id="previewWarnings"></div>
+      <div id="previewSheetList" class="preview-sheets"></div>
+    </div>
+  </section>
+  <script src="review.js"></script>
+</body>
+</html>

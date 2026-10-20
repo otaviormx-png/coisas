@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "PEC para GIL — Raul",
+  "version": "0.1.0",
+  "description": "Coleta e revisão exclusiva dos atendimentos do Raul antes do envio ao GIL.",
+  "permissions": ["activeTab", "storage", "downloads", "tabs", "scripting"],
+  "host_permissions": ["https://esus.saude.niteroi.rj.gov.br/*"],
+  "action": {"default_title": "PEC para GIL — Raul", "default_popup": "popup.html"},
+  "background": {"service_worker": "background.js"},
+  "content_scripts": [
+    {"matches": ["https://esus.saude.niteroi.rj.gov.br/lista-atendimento*"], "js": ["content.js"], "run_at": "document_idle"},
+    {"matches": ["https://esus.saude.niteroi.rj.gov.br/agenda/*"], "js": ["agenda.js"], "run_at": "document_idle"}
+  ]
+}

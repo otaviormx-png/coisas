@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "PEC para BPA-I",
+  "version": "0.10.19",
+  "description": "Coleta atendimentos realizados no PEC e prepara uma lista para revisao antes do BPA-I.",
+  "permissions": ["activeTab", "storage", "downloads", "tabs", "scripting"],
+  "host_permissions": ["https://esus.saude.niteroi.rj.gov.br/*"],
+  "action": {
+    "default_title": "PEC para BPA-I",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://esus.saude.niteroi.rj.gov.br/lista-atendimento*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://esus.saude.niteroi.rj.gov.br/agenda/*"],
+      "js": ["agenda.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
