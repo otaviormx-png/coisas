@@ -30,3 +30,6 @@ preferindo CPF; prontuário 9 não cria um cadastro permanente.
 
 Esta extensão entrega coleta e seleção. No programa local, após importar e conferir,
 use “Lançar selecionados no GIL”. Ele simula, faz backup e pede confirmação antes de gravar.
+
+
+O importador reconstruído está em `../importadores/Abrir_GIL_Revisao_Raul.cmd`. Consulte `../importadores/README.md` para instalar as dependências e conferir o destino do banco.

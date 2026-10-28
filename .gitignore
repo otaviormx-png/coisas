@@ -1,9 +1,10 @@
-# Este repositório público deve receber somente os projetos das extensões.
+# Código das extensões e dos importadores locais, sem arquivos operacionais.
 /*
 !/README.md
 !/.gitignore
 !/pec_bpa_extension/
 !/pec_gil_extension/
+!/importadores/
 
 # Não publicar dados exportados, bancos, backups, credenciais ou pacotes.
 **/node_modules/
@@ -11,6 +12,10 @@
 **/backups/
 **/relatorios/
 **/outputs/
+**/.runtime/
+**/localdata/
+**/.pytest_cache/
+**/*_config.json
 **/.env
 **/.env.*
 *.pyc
@@ -36,3 +41,4 @@ revisao_preparada.json
 selecao_raul.json
 identificacoes_pec.json
 bpa_automatizador_config.json
+
