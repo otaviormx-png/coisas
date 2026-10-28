@@ -9,6 +9,57 @@ def professionals(db):
                     'FROM CADMED C JOIN CADMED_CBO_CNES V ON V.MED_CNS=C.CADMED_CNS ORDER BY C.CADMED_NOME, V.MED_CBO')
 
 
+def service_reference(db, cmp):
+    rows=db.query('SELECT MAX(PASRV_CMP) AS CMP FROM S_PASRV WHERE PASRV_CMP<=?',(cmp,))
+    return rows[0]['CMP'] if rows else None
+
+
+def professional_setup(db, payload, opts):
+    """Sugestões verificadas na SIGTAP instalada; nunca escolhe vínculo ambíguo."""
+    links = professionals(db)
+    cmp = str(opts.get('competence',''))
+    if not re.fullmatch(r'\d{4}(0[1-9]|1[0-2])',cmp):
+        raise ReviewError('Confira a competência antes de ler os vínculos.')
+    reference=service_reference(db,cmp)
+    suggestions = {}
+    for name in sorted({str(r.get('professional','')) for r in payload['records']}):
+        key=norm(name)
+        procedures={digits(r.get('procedure')) for r in payload['records'] if norm(r.get('professional'))==key}
+        matching=[v for v in links if norm(v['NAME'])==key or (len(norm(v['NAME']))>=15 and key.startswith(norm(v['NAME'])))]
+        previous=opts.get('bindings',{}).get(key,{})
+        candidates=[]
+        for link in matching:
+            allowed=None
+            for procedure in procedures:
+                if len(procedure)!=10:continue
+                rows=db.query('SELECT PASRV_SRV,PASRV_CSF FROM S_PASRV WHERE PASRV_PA=? AND PASRV_CMP=?',(procedure[:9],reference)) if reference else []
+                pairs={(r['PASRV_SRV'],r['PASRV_CSF']) for r in rows}
+                if pairs:allowed=pairs if allowed is None else allowed & pairs
+            service=classification='';source='Confira a regra do profissional.'
+            saved=(str(previous.get('service','')),str(previous.get('classification','')))
+            history=db.query("SELECT DISTINCT PRD_SERVICO,PRD_CLASSIFICACAO FROM S_PRD WHERE PRD_CNSMED=? AND PRD_CBO=? AND PRD_UID=? AND PRD_ORG='BPI' AND PRD_CMP<=?",(link['CNS'],link['CBO'],link['CNES'],cmp))
+            historical={(r['PRD_SERVICO'],r['PRD_CLASSIFICACAO']) for r in history if r['PRD_SERVICO'] and r['PRD_CLASSIFICACAO']}
+            if allowed is not None:historical &= allowed
+            pick=None
+            if all(re.fullmatch(r'\d{3}',v) for v in saved) and (allowed is None or saved in allowed):
+                pick=saved;source='Configuração já confirmada para o profissional.'
+            elif allowed is not None and len(allowed)==1:
+                pick=next(iter(allowed));source='Combinação única na tabela de serviços do BPA.'
+            elif len(historical)==1:
+                pick=next(iter(historical));source='Combinação já usada no BPA e compatível com a tabela.'
+            elif procedures=={'0302050027'} and link['CBO']=='223605' and allowed and ('135','003') in allowed:
+                pick=('135','003');source='Regra de fisioterapia 135/003 conferida no catálogo do BPA.'
+            if pick:service,classification=pick
+            candidates.append(dict(cns=link['CNS'],cbo=link['CBO'],cnes=link['CNES'],service=service,
+                                   classification=classification,cid_required=procedures=={'0302050027'},source=source))
+        chosen=[c for c in candidates if all(c[k]==previous.get(k) for k in ('cns','cbo','cnes'))]
+        if not chosen and len(candidates)==1:chosen=candidates
+        suggestions[key]={'candidates':candidates,'binding':chosen[0] if len(chosen)==1 else None,
+                          'ambiguous':len(candidates)>1 and not chosen}
+    return {'links':links,'suggestions':suggestions,'serviceReference':reference,
+            'warning':'' if reference else 'Não foi encontrada referência de serviços para este período. Confira a configuração do profissional.'}
+
+
 def identity(row):
     return (row.get('PRD_CPF_PCNTE') or row.get('PRD_CNSPAC') or
             (norm(row.get('PRD_NMPAC')), row.get('PRD_DTNASC')))
@@ -47,6 +98,7 @@ def plan(db, payload, opts):
         sheets[group][int(flh)].append(row)
     seen = []
     cache = {}
+    service_cmp=service_reference(db,cmp)
     for r in payload['records']:
         try:
             if r.get('excluded') or r.get('reviewStatus') == 'duplicate':
@@ -81,7 +133,7 @@ def plan(db, payload, opts):
                 pa = db.query('SELECT PA_ID,PA_DV,PA_CMP,PA_DC,PA_SEXO FROM S_PA WHERE PA_ID=? AND PA_DV=? AND PA_CMP=?',
                               (procedure[:9], procedure[9:], cmp))
                 cbos = db.query('SELECT PACBO_CBO FROM S_PACBO WHERE PACBO_PA=? AND PACBO_CMP=?', (procedure[:9], cmp))
-                srvs = db.query('SELECT PASRV_SRV,PASRV_CSF FROM S_PASRV WHERE PASRV_PA=? AND PASRV_CMP=?', (procedure[:9], cmp))
+                srvs = db.query('SELECT PASRV_SRV,PASRV_CSF FROM S_PASRV WHERE PASRV_PA=? AND PASRV_CMP=?', (procedure[:9], service_cmp)) if service_cmp else []
                 cids = db.query('SELECT PACID_CID FROM S_PACID WHERE PACID_PA=? AND PACID_CMP=?', (procedure[:9], cmp))
                 cache[procedure] = (pa, cbos, srvs, cids)
             pa, cbos, srvs, cids = cache[procedure]
@@ -104,8 +156,10 @@ def plan(db, payload, opts):
                 if not re.fullmatch('[A-Z][0-9]{2}[0-9A-Z]?', cid):
                     raise ReviewError('CID inválido.')
                 valid = db.query('SELECT FIRST 1 CD_COD FROM S_CID WHERE CD_COD=? AND (CMP_INI IS NULL OR CMP_INI<=?) AND (CMP_FIM IS NULL OR CMP_FIM=\'\' OR CMP_FIM>=?)', (cid,cmp,cmp))
-                if not valid or (cids and cid not in {v['PACID_CID'] for v in cids}):
-                    raise ReviewError('CID ausente ou incompatível na tabela instalada.')
+                if not valid:
+                    raise ReviewError('CID '+cid+' não encontrado ou fora do período na tabela do BPA.')
+                if cids and cid not in {v['PACID_CID'] for v in cids}:
+                    raise ReviewError('CID '+cid+' incompatível com o procedimento '+procedure+' na tabela do BPA.')
             cep, ibge = digits(r.get('postalCode')), digits(r.get('residenceMunicipalityCode'))
             if len(cep) != 8 or len(ibge) != 6:
                 raise ReviewError('Confira CEP e código IBGE de residência.')

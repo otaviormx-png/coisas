@@ -23,17 +23,17 @@ public sealed class ImportadorForm : Form
     GroupBox connection;
     DataGridView grid;
     Label status;
-    CheckBox strict, coringa, deleteSource;
+    CheckBox strict, coringa, deleteSource, automaticLogin;
     Process worker;
     StreamWriter input;
-    bool busy, populating, canSimulate, simulated;
+    bool busy, populating, canSimulate, simulated, unsavedChanges;
     int requestId;
 #if QA
     bool qaMode;
 #endif
 
     static readonly Dictionary<string, string> Labels = new Dictionary<string, string> {
-        {"dsn","Banco (servidor:caminho)"},{"user","Usuário"},{"password","Senha"},{"competence","Competência AAAAMM"},
+        {"dsn","Banco (servidor:caminho)"},{"user","Usuário Firebird (banco)"},{"password","Senha Firebird (banco)"},{"competence","Competência AAAAMM"},
         {"cnes","CNES"},{"unit","Unidade GIL"},{"matricula","Matrícula Raul"},{"specialty","Especialidade"},
         {"client","Cliente fbclient.dll"},{"gbak","GBAK do servidor"},{"backup_dir","Backups e recibos"},
         {"patientName","Nome do paciente"},{"attendanceDate","Data do atendimento"},{"professional","Profissional"},
@@ -82,41 +82,46 @@ public sealed class ImportadorForm : Form
             buttons[names[i]] = btn; actions.Controls.Add(btn);
         }
         buttons["commit"].BackColor = Color.FromArgb(0, 108, 105); buttons["commit"].ForeColor = Color.White;
-        var options = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 38, Padding = new Padding(12, 3, 5, 3) };
+        var options = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 62, Padding = new Padding(12, 3, 5, 3) };
         strict = new CheckBox { Text = "Bloquear textos acima dos limites do BPA", AutoSize = true, Visible = mode == "bpa" };
         coringa = new CheckBox { Text = "Permitir prontuário 9 para identificação conferida sem cadastro", AutoSize = true, Visible = mode == "gil" };
         deleteSource = new CheckBox { Text = "Excluir JSON após gravação e conferência", AutoSize = true, Checked = true };
+        automaticLogin = new CheckBox { Text = "Login automático protegido pelo Windows", AutoSize = true, Checked = true };
+        automaticLogin.CheckedChanged += delegate { if (!populating) { FillAutomaticLogin(); InvalidatePreview(); } };
+        fields["dsn"].Leave += delegate { FillAutomaticLogin(); };
         strict.CheckedChanged += delegate { InvalidatePreview(); }; coringa.CheckedChanged += delegate { InvalidatePreview(); };
-        options.Controls.AddRange(new Control[] { strict, coringa, deleteSource });
+        options.Controls.AddRange(new Control[] { strict, coringa, deleteSource, automaticLogin });
         status = new Label { Dock = DockStyle.Top, Height = 68, Padding = new Padding(12, 6, 5, 5), BackColor = Color.FromArgb(237, 246, 246), Text = "Abra o JSON exportado pela extensão. Nenhum banco foi alterado." };
         grid = new DataGridView { Dock = DockStyle.Fill, ReadOnly = true, AllowUserToAddRows = false, AllowUserToDeleteRows = false,
             RowHeadersVisible = false, SelectionMode = DataGridViewSelectionMode.FullRowSelect, MultiSelect = false,
             AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill, BackgroundColor = Color.White };
-        string[] columnNames = { "name", "date", "professional", "status", "location", "detail" };
-        string[] headings = { "Paciente", "Data", "Profissional", "Situação", "Folha/lote", "Conferência" };
+        string[] columnNames = { "name", "date", "professional", "procedure", "cid", "status", "location", "detail" };
+        string[] headings = { "Paciente", "Data", "Profissional", "Procedimento", "CID", "Situação", "Folha/lote", "Conferência" };
         for (int i = 0; i < columnNames.Length; i++) grid.Columns.Add(columnNames[i], headings[i]);
         grid.Columns["detail"].FillWeight = 220; grid.Columns["name"].FillWeight = 150; grid.Columns["date"].FillWeight = 70;
+        grid.Columns["cid"].FillWeight=45;grid.Columns["procedure"].FillWeight=90;
         grid.Columns.Add(new DataGridViewButtonColumn { Name = "edit", HeaderText = "", FillWeight = 65 });
         grid.CellContentClick += delegate(object sender, DataGridViewCellEventArgs e) { if (!busy && e.RowIndex >= 0 && e.ColumnIndex >= 0 && grid.Columns[e.ColumnIndex].Name == "edit") EditRecord((int)grid.Rows[e.RowIndex].Tag); };
-        var footer = new Label { Dock = DockStyle.Bottom, Height = 33, Padding = new Padding(12, 7, 5, 5), Text = "Confira o primeiro lote. A simulação desfaz a transação. O backup é obrigatório antes da gravação." };
+        var footer = new Label { Dock = DockStyle.Bottom, Height = 40, Padding = new Padding(12, 7, 5, 5), Text = "Use a conta do banco Firebird, não o login MESTRE da tela do BPA. Gere a prévia e simule antes de gravar." };
         Controls.AddRange(new Control[] { grid, footer, status, options, actions, connection, banner });
         buttons["open"].Click += async delegate {
+            if(!await ConfirmUnsaved())return;
             using (var dialog = new OpenFileDialog { Filter = "Revisão PEC (*.json)|*.json", Title = "Abrir o JSON revisado da extensão" }) {
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
                 status.Text = "Lendo o JSON...";
                 var result = await Request("open", Obj("path", dialog.FileName));
-                if (result != null) { Populate(result); status.Text = records.Count + " registros carregados. Confira a conexão e gere a prévia."; }
+                if (result != null) { unsavedChanges=false;Populate(result); status.Text = records.Count + " registros carregados. Confira a conexão e gere a prévia."; }
             }
         };
         if (mode == "bpa") buttons["links"].Click += async delegate {
             status.Text = "Lendo os vínculos cadastrados no BPA...";
             var result = await RequestValue("links", RequestData());
-            if (result != null) { ShowBindings(Rows(result)); var saved = await Request("settings", RequestData()); if (saved != null) Populate(saved); }
+            if (result != null) { var setup=Map(result);ShowBindings(Rows(Get(setup,"links")),Map(Get(setup,"suggestions"))); var saved = await Request("settings", RequestData()); if (saved != null) Populate(saved);if(S(Get(setup,"warning")).Length>0)status.Text=S(Get(setup,"warning")); }
         };
         buttons["preview"].Click += async delegate {
             status.Text = "Conferindo o banco e preparando a prévia...";
             var result = await Request("preview", RequestData());
-            if (result != null) { Populate(result); int existing = Rows(Get(result, "rows")).Count(r => S(Get(r, "status")) == "EXISTENTE"); status.Text = N(Get(result, "new")) + " novos | " + existing + " existentes | " + N(Get(result, "pending")) + " pendentes. Confira os dados antes de simular."; }
+            if (result != null) { Populate(result); int existing = Rows(Get(result, "rows")).Count(r => S(Get(r, "status")) == "EXISTENTE"); status.Text = N(Get(result, "new")) + " novos | " + existing + " existentes | " + N(Get(result, "pending")) + " pendentes. Confira os dados antes de simular.\r\n"+S(Get(result,"setupWarning")); }
         };
         buttons["simulate"].Click += async delegate {
             status.Text = "Simulando o lote. As alterações serão desfeitas...";
@@ -130,7 +135,7 @@ public sealed class ImportadorForm : Form
             status.Text = "Criando backup, gravando e conferindo...";
             var result = await Request("commit", data);
             if (result != null) {
-                Populate(Map(Get(result, "state"))); var receipt = Map(Get(result, "result"));
+                unsavedChanges=false;Populate(Map(Get(result, "state"))); var receipt = Map(Get(result, "result"));
                 string message = "Gravação conferida: " + N(Get(receipt, "new")) + " atendimentos.\r\nBackup: " + S(Get(receipt, "backup"));
                 if (B(Get(receipt, "sourceDeleted"))) message += "\r\nJSON de entrada excluído.";
                 if (Get(receipt, "cleanupWarning") != null) message += "\r\n" + S(Get(receipt, "cleanupWarning"));
@@ -140,7 +145,7 @@ public sealed class ImportadorForm : Form
         buttons["draft"].Click += async delegate {
             using (var dialog = new SaveFileDialog { Filter = "JSON (*.json)|*.json", FileName = "revisao_pec_rascunho.json", OverwritePrompt = true }) {
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                if (await Request("saveDraft", Obj("path", dialog.FileName, "records", records.ToArray())) != null) status.Text = "Rascunho salvo. Guarde-o apenas enquanto necessário.";
+                if (await Request("saveDraft", Obj("path", dialog.FileName, "records", records.ToArray())) != null){unsavedChanges=false; status.Text = "Rascunho salvo. Guarde-o apenas enquanto necessário.";}
             }
         };
         buttons["close"].Click += delegate { Close(); };
@@ -148,8 +153,9 @@ public sealed class ImportadorForm : Form
             try { StartWorker(); var result = await Request("state", Obj()); if (result != null) Populate(result); }
             catch (Exception e) { MessageBox.Show(this, e.Message, "Não foi possível abrir o importador", MessageBoxButtons.OK, MessageBoxIcon.Error); Close(); }
         };
-        FormClosing += delegate(object sender, FormClosingEventArgs e) {
+        FormClosing += async delegate(object sender, FormClosingEventArgs e) {
             if (busy) { e.Cancel = true; MessageBox.Show(this, "Aguarde a operação terminar antes de fechar.", "Operação em andamento"); return; }
+            if(unsavedChanges){e.Cancel=true;if(await ConfirmUnsaved())Close();return;}
             fields["password"].Clear();
             if (worker != null) { try { if (!worker.HasExited) { if (input != null) input.Close(); if (!worker.WaitForExit(2000)) worker.Kill(); } } catch { } worker.Dispose(); }
             records.Clear(); state = null;
@@ -174,13 +180,13 @@ public sealed class ImportadorForm : Form
         foreach (var pair in buttons) pair.Value.Enabled = !busy;
         foreach (var key in new[] { "preview", "draft", "links" }) if (buttons.ContainsKey(key)) buttons[key].Enabled = !busy && records.Count > 0;
         buttons["simulate"].Enabled = !busy && canSimulate; buttons["commit"].Enabled = !busy && simulated;
-        connection.Enabled = grid.Enabled = strict.Enabled = coringa.Enabled = deleteSource.Enabled = !busy;
+        connection.Enabled = grid.Enabled = strict.Enabled = coringa.Enabled = deleteSource.Enabled = automaticLogin.Enabled = !busy;
     }
     Dictionary<string, object> RequestData() {
         var cfg = Obj(); foreach (var key in new[] { "dsn", "user", "client", "gbak", "backup_dir" }) cfg[key] = fields[key].Text.Trim();
         var opts = new Dictionary<string, object>(Map(Get(state, "options")));
         foreach (var key in new[] { "competence", "cnes", "unit", "matricula", "specialty" }) if (fields.ContainsKey(key)) opts[key] = fields[key].Text.Trim();
-        opts["bindings"] = bindings; opts["allow_coringa"] = coringa.Checked; opts["strict_text"] = strict.Checked;
+        opts["bindings"] = bindings; opts["allow_coringa"] = coringa.Checked; opts["strict_text"] = strict.Checked;opts["remember_login"]=automaticLogin.Checked;
         return Obj("config", cfg, "options", opts, "password", fields["password"].Text, "records", records.ToArray());
     }
     void Populate(Dictionary<string, object> next) {
@@ -189,15 +195,16 @@ public sealed class ImportadorForm : Form
         try {
             foreach (var pair in Map(Get(next, "config"))) if (fields.ContainsKey(pair.Key)) fields[pair.Key].Text = S(pair.Value);
             foreach (var key in new[] { "competence", "cnes", "unit", "matricula", "specialty" }) if (fields.ContainsKey(key)) fields[key].Text = S(Get(opts, key));
-            strict.Checked = B(Get(opts, "strict_text")); coringa.Checked = B(Get(opts, "allow_coringa"));
+            strict.Checked = B(Get(opts, "strict_text")); coringa.Checked = B(Get(opts, "allow_coringa"));automaticLogin.Checked=Get(opts,"remember_login")==null||B(Get(opts,"remember_login"));
         } finally { populating = false; }
+        FillAutomaticLogin();
         grid.Rows.Clear(); var rows = Rows(Get(next, "rows"));
         if (rows.Count == 0) {
-            for (int n = 0; n < records.Count; n++) { var r = records[n]; int index = grid.Rows.Add(S(Get(r, "patientName")), S(Get(r, "attendanceDate")), S(Get(r, "professional")), "A CONFERIR", "", "", "Editar"); grid.Rows[index].Tag = n; }
+            for (int n = 0; n < records.Count; n++) { var r = records[n]; int index = grid.Rows.Add(S(Get(r, "patientName")), S(Get(r, "attendanceDate")), S(Get(r, "professional")),S(Get(r,"procedure")),S(Get(r,"cid")), "A CONFERIR", "", "", "Editar"); grid.Rows[index].Tag = n; }
         } else {
             foreach (var r in rows) {
-                int index = grid.Rows.Add(S(Get(r, "name")), S(Get(r, "date")), S(Get(r, "professional")), S(Get(r, "status")), S(Get(r, "location")), S(Get(r, "detail")), "Editar");
-                var matches = Enumerable.Range(0, records.Count).Where(n => S(Get(records[n], "patientName")) == S(Get(r, "name")) && S(Get(records[n], "attendanceDate")) == S(Get(r, "date")) && S(Get(records[n], "professional")) == S(Get(r, "professional"))).ToList();
+                int index = grid.Rows.Add(S(Get(r, "name")), S(Get(r, "date")), S(Get(r, "professional")),S(Get(r,"procedure")),S(Get(r,"cid")), S(Get(r, "status")), S(Get(r, "location")), S(Get(r, "detail")), "Editar");
+                var matches = Enumerable.Range(0, records.Count).Where(n => S(Get(records[n], "patientName")) == S(Get(r, "name")) && S(Get(records[n], "attendanceDate")) == S(Get(r, "date")) && S(Get(records[n], "professional")) == S(Get(r, "professional"))&&S(Get(records[n],"procedure"))==S(Get(r,"procedure"))&&S(Get(records[n],"cid"))==S(Get(r,"cid"))).ToList();
                 grid.Rows[index].Tag = matches.Count == 1 ? matches[0] : -1;
                 if (S(Get(r, "status")) == "PENDENTE") grid.Rows[index].DefaultCellStyle.BackColor = Color.MistyRose;
                 if (S(Get(r, "status")) == "EXISTENTE") grid.Rows[index].DefaultCellStyle.ForeColor = Color.DimGray;
@@ -224,6 +231,10 @@ public sealed class ImportadorForm : Form
             var response = Map(json.DeserializeObject(line));
             if (N(Get(response, "id")) != id) throw new Exception("Resposta fora de sequência. Feche e abra o aplicativo.");
             if (!B(Get(response, "ok"))) throw new Exception(S(Get(response, "error")));
+            if(automaticLogin.Checked&&(action=="links"||action=="preview")&&S(Get(data,"password")).Length>0){
+                try{var cfg=Map(Get(data,"config"));WindowsCredentials.Save(mode,S(Get(cfg,"dsn")),S(Get(cfg,"user")),S(Get(data,"password")));}
+                catch(Exception){status.Text="Conexão efetuada, mas o Windows não permitiu salvar o login automático nesta sessão.";}
+            }
             return Get(response, "data");
         } catch (Exception e) {
 #if QA
@@ -234,6 +245,18 @@ public sealed class ImportadorForm : Form
         } finally { data.Remove("password"); busy = false; UpdateButtons(); }
     }
     async Task<Dictionary<string, object>> Request(string action, Dictionary<string, object> data) { var value = await RequestValue(action, data); return value == null ? null : Map(value); }
+
+    async Task<bool> ConfirmUnsaved() {
+        if(!unsavedChanges)return true;
+        var answer=MessageBox.Show(this,"Há alterações na revisão que ainda não foram salvas em um rascunho. Deseja salvá-las antes de continuar?","Salvar alterações",MessageBoxButtons.YesNoCancel,MessageBoxIcon.Question);
+        if(answer==DialogResult.Cancel)return false;
+        if(answer==DialogResult.No){unsavedChanges=false;return true;}
+        using(var dialog=new SaveFileDialog{Filter="JSON (*.json)|*.json",FileName="revisao_pec_rascunho.json",OverwritePrompt=true}){
+            if(dialog.ShowDialog(this)!=DialogResult.OK)return false;
+            var result=await Request("saveDraft",Obj("path",dialog.FileName,"records",records.ToArray()));
+            if(result==null)return false;unsavedChanges=false;return true;
+        }
+    }
 
     void EditRecord(int index) {
         if (index < 0) { MessageBox.Show(this, "Há registros idênticos. Corrija as duplicidades na extensão e exporte novamente."); return; }
@@ -247,12 +270,19 @@ public sealed class ImportadorForm : Form
             bar.Controls.AddRange(new Control[] { apply, cancel }); dialog.Controls.Add(layout); dialog.Controls.Add(bar); dialog.CancelButton = cancel;
             if (dialog.ShowDialog(this) == DialogResult.OK) {
                 foreach (var key in keys) records[index][key] = edits[key].Text.Trim();
+                unsavedChanges=true;
                 state["records"] = records.Cast<object>().ToArray(); state["rows"] = new object[0]; state["simulated"] = false;
                 InvalidatePreview(); Populate(state);
+                status.Text="Alterações aplicadas nesta revisão. Clique em Gerar prévia. Para guardar o arquivo editado, use Salvar rascunho.";
             }
         }
     }
-    void ShowBindings(List<Dictionary<string, object>> links) {
+    void FillAutomaticLogin() {
+        bool loaded=false;string user,password;bool previous=populating;populating=true;
+        try{if(automaticLogin.Checked&&WindowsCredentials.TryLoad(mode,fields["dsn"].Text,out user,out password)){fields["user"].Text=user;fields["password"].Text=password;loaded=true;}}
+        finally{populating=previous;fields["user"].ReadOnly=fields["password"].ReadOnly=loaded;}
+    }
+    void ShowBindings(List<Dictionary<string, object>> links, Dictionary<string,object> suggestions) {
         using (var dialog = new Form { Text = "Vínculos profissionais do BPA", Size = new Size(1200, 550), StartPosition = FormStartPosition.CenterParent, Font = Font }) {
             var list = new DataGridView { Dock = DockStyle.Fill, AllowUserToAddRows = false, AllowUserToDeleteRows = false, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill };
             list.Columns.Add("professional", "Profissional no PEC"); list.Columns["professional"].ReadOnly = true;
@@ -260,14 +290,25 @@ public sealed class ImportadorForm : Form
             var combo = new DataGridViewComboBoxColumn { Name = "link", HeaderText = "Nome | CNS | CBO | CNES", FillWeight = 220 };
             foreach (var label in labels) combo.Items.Add(label); list.Columns.Add(combo);
             list.Columns.Add("service", "Serviço"); list.Columns.Add("classification", "Classificação"); list.Columns.Add(new DataGridViewCheckBoxColumn { Name = "cid", HeaderText = "CID obrigatório" });
+            list.Columns.Add("source","Origem do preenchimento");list.Columns["source"].ReadOnly=true;list.Columns["source"].FillWeight=220;
             foreach (var name in records.Select(r => S(Get(r, "professional"))).Distinct().OrderBy(s => s)) {
-                var current = Map(Get(bindings, Key(name))); string chosen = labels[0];
+                var suggestion=Map(Get(suggestions,Key(name)));var current = Map(Get(bindings, Key(name)));if(current.Count==0)current=Map(Get(suggestion,"binding"));string chosen = labels[0];
                 for (int j = 0; j < links.Count; j++) if (S(Get(links[j],"CNS")) == S(Get(current,"cns")) && S(Get(links[j],"CBO")) == S(Get(current,"cbo")) && S(Get(links[j],"CNES")) == S(Get(current,"cnes"))) chosen = labels[j+1];
-                list.Rows.Add(name, chosen, S(Get(current,"service")), S(Get(current,"classification")), B(Get(current,"cid_required")));
+                var candidates=Rows(Get(suggestion,"candidates"));var recommended=candidates.FirstOrDefault(c=>S(Get(c,"cns"))==S(Get(current,"cns"))&&S(Get(c,"cbo"))==S(Get(current,"cbo"))&&S(Get(c,"cnes"))==S(Get(current,"cnes")));
+                if(recommended==null&&candidates.Count>0&&candidates.All(c=>S(Get(c,"service")).Length==3)&&candidates.Select(c=>S(Get(c,"service"))+S(Get(c,"classification"))).Distinct().Count()==1)recommended=candidates[0];
+                if(recommended!=null){current=new Dictionary<string,object>(current);foreach(var k in new[]{"service","classification","cid_required","source"})current[k]=Get(recommended,k);}
+                list.Rows.Add(name, chosen, S(Get(current,"service")), S(Get(current,"classification")), B(Get(current,"cid_required")),S(Get(current,"source")));
             }
+            list.CurrentCellDirtyStateChanged+=delegate{if(list.IsCurrentCellDirty)list.CommitEdit(DataGridViewDataErrorContexts.Commit);};
+            list.CellValueChanged+=delegate(object sender,DataGridViewCellEventArgs e){
+                if(e.RowIndex<0||e.ColumnIndex!=list.Columns["link"].Index)return;
+                var row=list.Rows[e.RowIndex];int idx=labels.IndexOf(S(row.Cells["link"].Value))-1;if(idx<0)return;var link=links[idx];var suggestion=Map(Get(suggestions,Key(S(row.Cells["professional"].Value))));
+                var candidate=Rows(Get(suggestion,"candidates")).FirstOrDefault(c=>S(Get(c,"cns"))==S(Get(link,"CNS"))&&S(Get(c,"cbo"))==S(Get(link,"CBO"))&&S(Get(c,"cnes"))==S(Get(link,"CNES")));
+                if(candidate==null)return;row.Cells["service"].Value=S(Get(candidate,"service"));row.Cells["classification"].Value=S(Get(candidate,"classification"));row.Cells["cid"].Value=B(Get(candidate,"cid_required"));row.Cells["source"].Value=S(Get(candidate,"source"));
+            };
             var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 60, Padding = new Padding(10) };
             var save = new Button { Text = "Aplicar vínculos", Width = 150, DialogResult = DialogResult.OK };
-            bar.Controls.Add(save); bar.Controls.Add(new Label { Text = "Confira o cadastro. Serviço e classificação usam três dígitos cada.", AutoSize = true });
+            bar.Controls.Add(save); bar.Controls.Add(new Label { Text = "Serviço e classificação são preenchidos pelas regras disponíveis. Confira o profissional e a origem indicada.", AutoSize = true });
             dialog.Controls.Add(list); dialog.Controls.Add(bar);
             if (dialog.ShowDialog(this) == DialogResult.OK) {
                 list.EndEdit();

@@ -126,7 +126,8 @@ class Plan:
 
     def add(self, r, status, detail, location=''):
         self.rows.append({'name': str(r.get('patientName', '')), 'date': str(r.get('attendanceDate', '')),
-                          'professional': str(r.get('professional', '')), 'status': status,
+                          'professional': str(r.get('professional', '')), 'procedure':str(r.get('procedure','')),
+                          'cid':str(r.get('cid','')), 'status': status,
                           'detail': detail, 'location': location})
 
 
@@ -148,7 +149,15 @@ class Database:
         lib = config.get('client') or os.environ.get('FBCLIENT')
         if lib:
             fdb.load_api(str(Path(lib).resolve()))
-        self.con = fdb.connect(dsn=config['dsn'], user=config['user'], password=password, charset='WIN1252')
+        try:
+            self.con = fdb.connect(dsn=config['dsn'], user=config['user'], password=password, charset='WIN1252')
+        except fdb.DatabaseError as exc:
+            if 335544472 in exc.args or 'user name and password are not defined' in str(exc).lower():
+                raise ReviewError('O Firebird recusou o usuário ou a senha do banco. '
+                                  'Este campo não usa o login da tela do BPA (por exemplo, MESTRE). '
+                                  'Informe a conta Firebird autorizada para esta instalação; o usuário padrão do BPA local é SYSDBA. '
+                                  'A senha também é a do Firebird. Nenhum atendimento foi gravado nesta tentativa.') from exc
+            raise
         tpb = fdb.TPB()
         tpb.access_mode = fdb.isc_tpb_write if write else fdb.isc_tpb_read
         tpb.isolation_level = fdb.isc_tpb_concurrency

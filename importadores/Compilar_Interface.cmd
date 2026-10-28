@@ -6,5 +6,5 @@ if not exist "%PEC_CSC%" (
   echo O compilador do .NET Framework nao foi encontrado neste Windows.
   exit /b 1
 )
-"%PEC_CSC%" /nologo /target:winexe /platform:anycpu /codepage:65001 /out:Importador_PEC.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll /reference:System.Core.dll Interface.cs
+"%PEC_CSC%" /nologo /target:winexe /platform:anycpu /codepage:65001 /out:Importador_PEC.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll /reference:System.Core.dll /reference:System.Security.dll Interface.cs WindowsCredentials.cs
 exit /b %errorlevel%

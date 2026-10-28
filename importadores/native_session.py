@@ -16,11 +16,12 @@ class Session:
     def __init__(self,mode):
         self.mode=mode
         self.payload=None;self.source=None;self.source_hash=None;self.plan=None;self.simulated=None
+        self.setup_warning=''
         self.config=dict(dsn=r'localhost:C:\Trabalho\BPA\BPAMAG.GDB' if mode=='bpa' else '',
             user='SYSDBA' if mode=='bpa' else 'SYSGIL',client=str(ROOT/'.runtime'/'firebird'/'bin'/'fbclient.dll'),
             gbak=r'C:\Program Files (x86)\Firebird\Firebird_1_5\bin\gbak.exe',backup_dir=str(ROOT/'localdata'/'backups'))
         self.options=dict(competence='',cnes='0012734',unit='001273400',matricula='52573220',specialty='225170',
-                          bindings={},allow_coringa=False,strict_text=False)
+                          bindings={},allow_coringa=False,strict_text=False,remember_login=True)
         saved=ROOT/'localdata'/(mode+'_native_config.json')
         if not saved.is_file() and mode=='bpa':
             saved=ROOT/'localdata'/'bpa_web_config.json'
@@ -47,7 +48,7 @@ class Session:
         return dict(mode=self.mode,config=self.config,options=self.options,records=self.payload['records'] if self.payload else [],
             rows=self.plan.rows if self.plan else [],pending=len(self.plan.errors) if self.plan else 0,
             new=self.plan.new_count if self.plan else 0,simulated=bool(self.simulated and self.simulated==self.signature()),
-            hasSource=bool(self.source))
+            hasSource=bool(self.source),setupWarning=self.setup_warning)
 
     def action(self,name,data):
         if name=='state':return self.state()
@@ -81,11 +82,23 @@ class Session:
         if name=='settings':return self.state()
         pw=data.get('password','')
         if name=='links':
-            with Database(self.config,pw) as db:return bpa.professionals(db)
+            if not self.payload:raise ReviewError('Abra o JSON primeiro.')
+            with Database(self.config,pw) as db:return bpa.professional_setup(db,self.payload,self.options)
         if not self.payload:raise ReviewError('Abra o JSON primeiro.')
         if name=='preview':
             self.simulated=None
-            with Database(self.config,pw) as db:self.plan=(bpa.plan if self.mode=='bpa' else gil.plan)(db,self.payload,self.options)
+            with Database(self.config,pw) as db:
+                if self.mode=='bpa':
+                    setup=bpa.professional_setup(db,self.payload,self.options)
+                    for key,item in setup['suggestions'].items():
+                        if item.get('binding'):
+                            current=self.options['bindings'].get(key,{})
+                            proposed=item['binding']
+                            if not current.get('cns') or all(current.get(k)==proposed.get(k) for k in ('cns','cbo','cnes')):
+                                self.options['bindings'][key]={**current,**proposed}
+                    self.setup_warning=setup.get('warning','')
+                self.plan=(bpa.plan if self.mode=='bpa' else gil.plan)(db,self.payload,self.options)
+            self.update({})
             return self.state()
         if name in ('simulate','commit'):
             if not self.plan:raise ReviewError('Gere a prévia primeiro.')
