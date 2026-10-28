@@ -51,7 +51,7 @@ Depois de revisar tudo, clique em **Exportar fila para o BPA**. O JSON contém o
 
 A **Prévia das folhas BPA** usa a mesma organização da exportação. Ela não grava nada no BPA; serve para conferir folhas, pacientes, procedimentos, CID e pendências antes do envio.
 
-Na pasta principal há o programa `Abrir_BPA_Revisao_Importador.cmd`. Ele abre uma tela para:
+Na pasta `importadores` há o programa `Abrir_BPA_Revisao_Importador.cmd`. Consulte `../importadores/README.md` para preparar as dependências e conferir a conexão. Ele abre uma tela para:
 
 1. escolher o JSON exportado;
 2. informar/confirmar a competência;
@@ -93,3 +93,4 @@ O automatizador antigo de correções continua separado: ele corrige marcação 
 ## Profissional novo
 
 Qualquer profissional selecionado no navegador e encontrado na Lista de atendimentos ou na Agenda aparece automaticamente na revisão. Em **Adicionar/configurar profissional novo**, é possível salvar o procedimento padrão e informar se o CID é obrigatório. O vínculo CNS/CBO/serviço/classificação é associado no importador do BPA pelo botão **Adicionar profissional** e fica salvo para os próximos lotes.
+
