@@ -82,6 +82,9 @@ class Session:
         if name=='settings':return self.state()
         pw=data.get('password','')
         if name=='links':
+            # Contrato original: janelas anteriores esperam diretamente uma lista.
+            with Database(self.config,pw) as db:return bpa.professionals(db)
+        if name=='setup':
             if not self.payload:raise ReviewError('Abra o JSON primeiro.')
             with Database(self.config,pw) as db:return bpa.professional_setup(db,self.payload,self.options)
         if not self.payload:raise ReviewError('Abra o JSON primeiro.')

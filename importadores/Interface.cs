@@ -115,7 +115,7 @@ public sealed class ImportadorForm : Form
         };
         if (mode == "bpa") buttons["links"].Click += async delegate {
             status.Text = "Lendo os vínculos cadastrados no BPA...";
-            var result = await RequestValue("links", RequestData());
+            var result = await RequestValue("setup", RequestData());
             if (result != null) { var setup=Map(result);ShowBindings(Rows(Get(setup,"links")),Map(Get(setup,"suggestions"))); var saved = await Request("settings", RequestData()); if (saved != null) Populate(saved);if(S(Get(setup,"warning")).Length>0)status.Text=S(Get(setup,"warning")); }
         };
         buttons["preview"].Click += async delegate {
@@ -231,7 +231,7 @@ public sealed class ImportadorForm : Form
             var response = Map(json.DeserializeObject(line));
             if (N(Get(response, "id")) != id) throw new Exception("Resposta fora de sequência. Feche e abra o aplicativo.");
             if (!B(Get(response, "ok"))) throw new Exception(S(Get(response, "error")));
-            if(automaticLogin.Checked&&(action=="links"||action=="preview")&&S(Get(data,"password")).Length>0){
+            if(automaticLogin.Checked&&(action=="links"||action=="setup"||action=="preview")&&S(Get(data,"password")).Length>0){
                 try{var cfg=Map(Get(data,"config"));WindowsCredentials.Save(mode,S(Get(cfg,"dsn")),S(Get(cfg,"user")),S(Get(data,"password")));}
                 catch(Exception){status.Text="Conexão efetuada, mas o Windows não permitiu salvar o login automático nesta sessão.";}
             }

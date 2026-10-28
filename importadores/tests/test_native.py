@@ -87,6 +87,22 @@ class NativeSessionTests(unittest.TestCase):
         self.session.action('saveDraft',{'path':str(target),'records':records})
         self.assertEqual(json.loads(target.read_text(encoding='utf-8'))['records'][0]['patientName'],records[0]['patientName'])
 
+    def test_old_window_keeps_flat_professional_list_contract(self):
+        from unittest.mock import MagicMock
+        fake=MagicMock();fake.__enter__.return_value=fake
+        entries=[{'NAME':'PROFISSIONAL FICTICIO','CNS':'700000000000005','CBO':'223605','CNES':'0012734'}]
+        with patch.object(native,'Database',return_value=fake),patch.object(native.bpa,'professionals',return_value=entries):
+            result=self.session.action('links',{})
+        self.assertIsInstance(result,list);self.assertEqual(result,entries)
+
+    def test_new_window_requests_structured_setup_separately(self):
+        from unittest.mock import MagicMock
+        fake=MagicMock();fake.__enter__.return_value=fake
+        setup={'links':[],'suggestions':{},'warning':''}
+        with patch.object(native,'Database',return_value=fake),patch.object(native.bpa,'professional_setup',return_value=setup):
+            result=self.session.action('setup',{})
+        self.assertEqual(result,setup)
+
 
 class NativeProtocolTests(unittest.TestCase):
     def test_stdio_open_draft_and_shutdown_utf8(self):

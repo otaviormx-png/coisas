@@ -8,6 +8,9 @@ MAX_REQUEST = 32 * 1024 * 1024
 
 
 def main():
+    # O protocolo independe da página de códigos do terminal/processo pai.
+    sys.stdout.reconfigure(encoding='utf-8',errors='strict')
+    sys.stderr.reconfigure(encoding='utf-8',errors='replace')
     parser = argparse.ArgumentParser()
     parser.add_argument('--mode', choices=['bpa', 'gil'], default='bpa')
     args = parser.parse_args()
