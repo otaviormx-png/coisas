@@ -7,10 +7,10 @@ Dois programas locais para receber os JSONs exportados pelas extensões deste re
 1. Use Python 3.11 ou posterior, de **64 bits**, no Windows.
 2. Execute `Preparar_Importadores.cmd` uma vez. Ele baixa o cliente oficial Firebird 2.5.9, verifica seu SHA-256 e instala FDB 2.0.4 somente na pasta `.runtime`. Não instala nem altera o servidor Firebird.
 3. Abra `Abrir_BPA_Revisao_Importador.cmd` ou `Abrir_GIL_Revisao_Raul.cmd`.
-4. A interface abre no navegador em um endereço `http://127.0.0.1:porta/`. Esse é o próprio computador. Nenhum dado de pacientes é enviado a um site externo pela aplicação.
-5. Abra o JSON da extensão. Você pode colar seu caminho completo ou usar **Escolher arquivo**.
-6. Expanda **Conexão e configurações do lote**, confira o destino e informe a senha. O GIL tenta ler seu destino do `Gil.ini` instalado nas pastas padrão do Datasus. Confira esse destino antes de usar.
-7. Faça a associação dos profissionais no BPA, gere a prévia, corrija todas as pendências, simule e confira os resultados. Feche o BPA/GIL antes de confirmar **Gravar lote**.
+4. A interface abre como uma janela do Windows. Não há navegador, servidor HTTP ou porta de interface. A janela conversa com o processo Python por entrada/saída padrão (pipes locais).
+5. Clique em **Abrir JSON** e selecione o arquivo da extensão na janela de arquivos do Windows.
+6. Em **Conexão e configurações do lote**, confira o destino e informe a senha. O BPA inicia com o banco local da PRLB. O GIL é opcional e exige informar o destino manualmente; não há descoberta nem conexão automática com servidor remoto.
+7. No BPA, clique em **Vínculos BPA** e associe os profissionais. Gere a prévia, corrija todas as pendências, simule e confira os resultados. Feche o BPA/GIL antes de confirmar **Gravar lote**.
 8. Ao terminar, use **Encerrar** para desligar a sessão local.
 
 Se o pacote fornecido já contém `.runtime`, a preparação pode ser dispensada. Ele ainda precisa de Python de 64 bits. O código do GitHub não inclui as dependências binárias.
@@ -21,7 +21,7 @@ O campo Banco usa `servidor:caminho`, por exemplo `localhost:C:\PastaDeTeste\bpa
 
 - `fbclient.dll`: cliente Firebird de 64 bits; o pacote usa a biblioteca oficial 2.5.9, cuja conexão e transações foram verificadas com os bancos Firebird 1.5 usados na reconstrução.
 - `gbak.exe`: use o utilitário compatível com a versão do **servidor**. Não substitua automaticamente o GBAK 1.5 instalado pelo GBAK 2.5 do download.
-- A senha fica somente na sessão de uso; não é salva nas configurações, no código ou nos recibos. O nome do usuário e o destino podem ser salvos em `localdata`.
+- A senha fica somente na sessão de uso; não é salva nas configurações, nos argumentos do processo, no código ou nos recibos. O nome do usuário e o destino podem ser salvos em `localdata`.
 - A conta precisa conseguir ler os cadastros e tabelas de referência e, na gravação, alterar as tabelas do destino. Credenciais devem ser fornecidas pelo responsável pelo banco.
 
 O diretório `localdata` e todas as dependências ficam fora do Git. Para usar em outro computador, copie o código e prepare as dependências nesse computador; não publique configurações operacionais.
@@ -30,7 +30,7 @@ O diretório `localdata` e todas as dependências ficam fora do Git. Para usar e
 
 O arquivo deve ter `exportType: PEC_BPA_FILA_PARA_PREENCHIMENTO` e a lista `records` da extensão.
 
-- Selecione **Ler vínculos do banco** e associe cada nome do PEC ao CNS + CBO + CNES cadastrado em `CADMED` / `CADMED_CBO_CNES`. O destino inicial é o CNES `0012734` da PRLB; a interface permite conferir ou alterar esse campo.
+- Selecione **Vínculos BPA** e associe cada nome do PEC ao CNS + CBO + CNES cadastrado em `CADMED` / `CADMED_CBO_CNES`. O destino inicial é o CNES `0012734` da PRLB; a interface permite conferir ou alterar esse campo.
 - Informe serviço e classificação, ambos com três dígitos, e CID obrigatório quando aplicável. Fisioterapia `0302050027` sempre exige CID.
 - O programa confere competência do BPA, existência da tabela SIGTAP para o período, procedimento, relações de CBO/CID/serviço disponíveis, documento, nascimento, sexo, CEP/município e tipo de logradouro.
 - CPF válido tem prioridade. Sem CPF, é necessário CNS válido; a marcação `PRD_SEM_CPF` é derivada dessa identificação. Um CPF presente e inválido precisa ser corrigido.
@@ -56,21 +56,27 @@ A prévia consulta o banco em uma transação de leitura. A simulação usa uma 
 
 A gravação exige simulação válida e confirmação. Primeiro gera um backup lógico pelo GBAK. Depois reserva as tabelas, refaz o plano e compara sua assinatura à prévia: se os dados ou o destino mudarem, solicita nova revisão. As operações e a conferência interna ficam na mesma transação. Qualquer erro antes do commit desfaz o lote inteiro.
 
-Depois do commit, há nova leitura para conferir os registros. O recibo guarda quantidade, assinatura do plano, horário e caminho do backup, sem nomes, CPFs ou dados clínicos. Se houver falha após o commit, a mensagem deixa explícito que a gravação já ocorreu: use **Conferir no banco** antes de repetir. O JSON é preservado nessa situação.
+Depois do commit, há nova leitura para conferir os registros. O recibo guarda quantidade, assinatura do plano, horário e caminho do backup, sem nomes, CPFs ou dados clínicos. Se houver falha após o commit, a mensagem deixa explícito que a gravação já ocorreu: use **Gerar prévia** antes de repetir. O JSON é preservado nessa situação.
 
 Backups contêm os dados do banco. Guarde-os em pasta com acesso e retenção definidos pela instituição. A aplicação não restaura backups automaticamente.
 
 ## Limpeza dos arquivos
 
-Quando o JSON é aberto por seu caminho completo e a opção de exclusão está marcada, ele só é apagado após gravação **e conferência final bem-sucedidas**. Se o arquivo tiver mudado no disco desde a abertura, ele é preservado. Simulação, erro ou pendência nunca apagam a entrada.
+Com a opção de exclusão marcada, o JSON aberto na janela de arquivos só é apagado após gravação **e conferência final bem-sucedidas**. Se o arquivo tiver mudado no disco desde a abertura, ele é preservado. Simulação, erro ou pendência nunca apagam a entrada.
 
-Ao usar **Escolher arquivo**, o navegador não informa ao programa seu caminho original; nesse caso, exclua o arquivo manualmente após conferir. Rascunhos baixados anteriormente, CSVs e o lote salvo no armazenamento da extensão do Chrome precisam de limpeza separada. Excluir o JSON baixado não elimina o rascunho da extensão.
+Rascunhos salvos anteriormente, CSVs e o lote salvo no armazenamento da extensão do Chrome precisam de limpeza separada. Excluir o JSON não elimina o rascunho da extensão.
 
-## Segurança da interface local
+## Janela nativa e conexão com o banco
 
-A interface escuta somente em `127.0.0.1`, usa porta aleatória, valida `Host` e `Origin` e exige um token de sessão para as APIs. A página não carrega scripts externos; respostas usam `no-store` e política de conteúdo restrita. Não há API pública nem conexão com IA em tempo de execução.
+`Importador_PEC.exe` é uma janela Windows Forms que inicia `native_worker.py` como processo filho. Pedidos e respostas JSON passam exclusivamente pelos pipes de entrada/saída padrão desses processos. Não há servidor web, listener TCP da interface, localhost HTTP, API de navegador ou alteração de firewall.
 
-O uso em uma instituição depende das permissões do usuário e das regras de TI para consulta ao PEC, exportação e escrita nos destinos. Publicar o código não publica nem autoriza acesso aos bancos.
+A conexão com o **banco** continua separada da interface: o Firebird local do BPA já instalado pode usar sua conexão local existente; isso não significa publicar o importador na rede. Um GIL hospedado em outro computador precisa da conexão com esse servidor para gravar nele. O aplicativo não inicia, troca ou reconfigura serviços Firebird. É possível continuar lançando o GIL manualmente sem usar este importador.
+
+A janela é compilada a partir de `Interface.cs` com o compilador do .NET Framework disponível no Windows. O pacote local já inclui o executável; ao baixar apenas o código do GitHub, `Compilar_Interface.cmd` gera esse executável. Não é necessário PowerShell, Tcl/Tk ou navegador. Nenhuma política de execução do Windows é alterada.
+
+Se a versão antiga no navegador ainda estiver aberta, use **Encerrar** nela antes de abrir o novo atalho. A nova versão não inicia aquela interface. Configurações anteriores do BPA podem ser reaproveitadas sem carregar senha; o destino do GIL continua exigindo escolha explícita.
+
+O uso depende das permissões do usuário e das regras de TI da instituição para consulta ao PEC, exportação e gravação nos destinos. Publicar o código não publica nem autoriza acesso aos bancos.
 
 ## Testes
 
@@ -78,17 +84,19 @@ O uso em uma instituição depende das permissões do usuário e das regras de T
 python -m unittest discover -s importadores/tests -v
 ```
 
-Sem variáveis de ambiente, os testes de validação e da interface HTTP são executados e os testes com banco são pulados.
+Sem variáveis de ambiente, os testes de validação, sessão nativa e protocolo de pipes são executados e os testes com banco são pulados.
 
 Para a integração, prepare bancos **vazios** com a estrutura de cada sistema, em `localhost`, com nomes terminando em `_test.fdb`. Eles precisam estar dentro de uma pasta dedicada indicada em `TEST_DATA_DIR`. As fixtures de `tests/fixtures.py` contêm somente dados fictícios; aplique `seed(db, modo)` uma vez nesses bancos antes de executar os testes.
 
 Configure `TEST_BPA_DSN`, `TEST_BPA_USER`, `TEST_BPA_PASSWORD`, `TEST_GIL_DSN`, `TEST_GIL_USER`, `TEST_GIL_PASSWORD`, `TEST_DATA_DIR`, `FBCLIENT` e `TEST_GBAK`. Os testes de integração apagam os atendimentos desses bancos de teste entre os casos; a validação dos caminhos bloqueia destinos fora da pasta dedicada e servidores diferentes de localhost.
 
-Na reconstrução, 22 testes Python passaram, incluindo gravação real de fixtures em cópias de estrutura Firebird 1.5, backup, rollback, falha no meio da transação, idempotência, atualização de lotes, campos obrigatórios, limite de folhas, proteção HTTP e limpeza condicional do JSON. As telas BPA e GIL também foram verificadas com prévia e simulação de dados fictícios.
+O motor de importação foi verificado com dados fictícios em cópias da estrutura Firebird 1.5, incluindo backup, rollback, falha no meio da transação, idempotência, atualização de lotes e limite das folhas. Os arquivos `common.py`, `bpa.py` e `gil.py` foram preservados na troca da interface.
+
+A versão nativa acrescenta testes de protocolo, UTF-8, exigência de simulação/confirmação, invalidação após edição, preservação da entrada em falha, exclusão após conferência e migração de configurações sem senha. Um teste compilado com `QA` também abre um JSON fictício através da janela, atualiza a tabela e salva uma edição com acento pelo mesmo processo Python, sem conectar a bancos.
 
 ## Dependências
 
 - [FDB, projeto oficial](https://github.com/FirebirdSQL/fdb), versão 2.0.4.
 - [Cliente oficial Firebird 2.5.9](https://firebirdsql.org/en/firebird-2-5/), distribuição x64. As licenças do fornecedor acompanham o download. Apenas a biblioteca cliente é utilizada; o servidor instalado permanece o mesmo.
 
-Os atalhos usam a interface local no navegador; não é necessário instalar Tcl/Tk ou extensões adicionais para usar o importador.
+Os atalhos usam o executável nativo. Os arquivos da antiga interface web não acompanham esta versão.
