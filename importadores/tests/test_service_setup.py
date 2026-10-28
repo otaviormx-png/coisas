@@ -45,4 +45,17 @@ class ServiceSetupTests(unittest.TestCase):
         result=self.setup_for(ReferenceDb([('135','003'),('135','011')]),saved)
         self.assertEqual(result['suggestions']['CAMILLA ASSUMPCAO DE CARVALHO']['binding']['classification'],'011')
 
+    def test_procedure_without_required_service_does_not_inherit_history(self):
+        db=ReferenceDb([],history=[('112','008')])
+        payload={'records':[{'professional':'Camilla Assumpção de Carvalho','procedure':'0301040176'}]}
+        result=bpa.professional_setup(db,payload,{'competence':'202610','bindings':{}})
+        binding=result['suggestions']['CAMILLA ASSUMPCAO DE CARVALHO']['binding']
+        self.assertEqual((binding['service'],binding['classification']),('',''))
+        self.assertIn('não exigidos',binding['source'])
+
+    def test_missing_reference_is_not_presented_as_no_required_service(self):
+        result=self.setup_for(ReferenceDb([],reference=None))
+        self.assertTrue(result['warning'])
+        self.assertNotIn('não exigidos',result['suggestions']['CAMILLA ASSUMPCAO DE CARVALHO']['binding']['source'])
+
 if __name__=='__main__':unittest.main()

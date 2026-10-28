@@ -41,7 +41,9 @@ def professional_setup(db, payload, opts):
             historical={(r['PRD_SERVICO'],r['PRD_CLASSIFICACAO']) for r in history if r['PRD_SERVICO'] and r['PRD_CLASSIFICACAO']}
             if allowed is not None:historical &= allowed
             pick=None
-            if all(re.fullmatch(r'\d{3}',v) for v in saved) and (allowed is None or saved in allowed):
+            if reference and allowed is None and procedures and all(re.fullmatch(r'\d{10}',p) for p in procedures):
+                pick=('','');source='Serviço/classificação não exigidos para estes procedimentos na tabela do BPA.'
+            elif all(re.fullmatch(r'\d{3}',v) for v in saved) and (allowed is None or saved in allowed):
                 pick=saved;source='Configuração já confirmada para o profissional.'
             elif allowed is not None and len(allowed)==1:
                 pick=next(iter(allowed));source='Combinação única na tabela de serviços do BPA.'
@@ -144,11 +146,17 @@ def plan(db, payload, opts):
                 raise ReviewError('Sexo incompatível com o procedimento na tabela instalada.')
             if cbos and cbo not in {v['PACBO_CBO'] for v in cbos}:
                 raise ReviewError('CBO incompatível com o procedimento na SIGTAP instalada.')
-            service, classification = str(binding.get('service', '')), str(binding.get('classification', ''))
-            if not re.fullmatch(r'\d{3}', service) or not re.fullmatch(r'\d{3}', classification):
-                raise ReviewError('Configure serviço e classificação com três dígitos cada.')
-            if srvs and (service, classification) not in {(v['PASRV_SRV'],v['PASRV_CSF']) for v in srvs}:
-                raise ReviewError('Serviço/classificação incompatível com o procedimento.')
+            if not service_cmp:
+                raise ReviewError('Referência de serviços do BPA não encontrada para este período. Confira a tabela antes de importar.')
+            if not srvs:
+                # A consulta e um procedimento da mesma profissional podem ter exigências diferentes.
+                service=classification=''
+            else:
+                service, classification = str(binding.get('service', '')), str(binding.get('classification', ''))
+                if not re.fullmatch(r'\d{3}', service) or not re.fullmatch(r'\d{3}', classification):
+                    raise ReviewError('Configure serviço e classificação com três dígitos cada.')
+                if (service, classification) not in {(v['PASRV_SRV'],v['PASRV_CSF']) for v in srvs}:
+                    raise ReviewError('Serviço/classificação incompatível com o procedimento.')
             cid = norm(r.get('cid')).replace('.', '')
             if (binding.get('cid_required') or procedure == '0302050027') and not cid:
                 raise ReviewError('CID obrigatório para este profissional/procedimento.')
@@ -232,7 +240,8 @@ def plan(db, payload, opts):
             sheets[group][chosen].append(v)
             p.writes.append(insert('S_PRD',v))
             p.checks.append(exact_check('S_PRD',v))
-            p.add(r,'NOVO','Pronto.'+(' Textos limitados ao BPA: '+', '.join(clipped) if clipped else ''), f'{chosen:03}/{seq:02}')
+            p.add(r,'NOVO','Pronto.'+(' Serviço/classificação não exigidos para este procedimento.' if not srvs else '')+
+                  (' Textos limitados ao BPA: '+', '.join(clipped) if clipped else ''), f'{chosen:03}/{seq:02}')
         except (ReviewError, ValueError, UnicodeEncodeError) as e:
             p.add(r,'PENDENTE',str(e))
     return p
